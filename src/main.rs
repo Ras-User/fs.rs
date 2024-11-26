@@ -1,18 +1,20 @@
-use std::fs;
-use std::path::Path;
-use std::ffi::OsStr;
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = "./src";
     let files = find_all_files_inside_direction(path);
 
-    for file in &files {
-        println!("{}", file);
-    }
+    // for file in &files {
+    //     println!("{}", file);
+    // }
 
     /*
-    Why &var_name ??? 
+    Why &var_name ???
     Remove & before "for file in '&'files". You'll see an error.
     The error message "value used here after move" occurs because in Rust,
     when you pass a value to a function, it is moved by default unless it
@@ -21,18 +23,26 @@ fn main() {
     after this call.
     */
 
-    let extensions = divide_by_ext(files);
+    let extensions: Vec<String> = divide_by_ext((&files).to_vec());
 
-    let no_duplicate_ext_list = remove_duplication(extensions);
+    let no_duplicate_ext_list: Vec<String> = remove_duplication(extensions);
 
-    let json = create_json_from_exts(no_duplicate_ext_list);
+    let json: HashMap<String, Vec<String>> = create_json_from_exts(no_duplicate_ext_list);
 
-    let json_string = serde_json::to_string(&json).unwrap();
+    // let json_string: String = serde_json::to_string(&json).unwrap();
 
-    println!("{}", json_string);
-    
+    // println!("{}", json_string);
 
-     
+    let categorized_json = categorize_files(files, json);
+
+    let string_cat_json = serde_json::to_string(&categorized_json).unwrap();
+
+    // println!("{}", string_cat_json);
+
+    let mut file = File::create("output.json")?;
+    file.write_all(string_cat_json.as_bytes())?;
+
+    Ok(())
 }
 
 fn find_all_files_inside_direction(path: &str) -> Vec<String> {
@@ -55,7 +65,9 @@ fn find_all_files_inside_direction(path: &str) -> Vec<String> {
                             Used to obtain an owned String from the result of to_string_lossy().
                          */
                     } else if entry.file_type().unwrap().is_dir() {
-                        files.extend(find_all_files_inside_direction(entry.path().to_str().unwrap()));
+                        files.extend(find_all_files_inside_direction(
+                            entry.path().to_str().unwrap(),
+                        ));
                         /*
                         to_str():
                             Attempts to convert a Path or CStr to a &str slice.
@@ -68,49 +80,66 @@ fn find_all_files_inside_direction(path: &str) -> Vec<String> {
                     }
                 }
             }
-        },
+        }
         Err(e) => eprintln!("Error reading directory: {}", e),
     }
 
     files
 }
 
-fn divide_by_ext(files:Vec<String>) -> Vec<String>{
-    let mut types:Vec<String> = Vec::new();
+fn divide_by_ext(files: Vec<String>) -> Vec<String> {
+    let mut types: Vec<String> = Vec::new();
 
-    for file in files{
+    for file in files {
         types.push(String::from(get_file_extension(file)));
     }
 
     types
 }
 
-fn get_file_extension(file:String) -> String{
-   let extension =  Path::new(&file[..]).extension().and_then(OsStr::to_str);
+fn get_file_extension(file: String) -> String {
+    let extension = Path::new(&file[..]).extension().and_then(OsStr::to_str);
 
-   extension.unwrap_or("").to_string()
+    extension.unwrap_or("").to_string()
 }
 
 fn remove_duplication(exts: Vec<String>) -> Vec<String> {
     let mut found_exts: Vec<String> = Vec::new();
 
     for ext in exts {
-        
-        if !found_exts.contains(&ext) {found_exts.push(ext)}
+        if !found_exts.contains(&ext) {
+            found_exts.push(ext)
+        }
     }
 
     found_exts
 }
 
-fn create_json_from_exts(exts:Vec<String>) -> HashMap<String , Vec<String>>{
-
+fn create_json_from_exts(exts: Vec<String>) -> HashMap<String, Vec<String>> {
     let mut extensions = HashMap::new();
 
-    for ext in exts{
-        extensions.insert(ext,Vec::new());
+    for ext in exts {
+        extensions.insert(ext, Vec::new());
     }
 
     extensions
+}
+
+fn categorize_files(
+    files: Vec<String>,
+    json: HashMap<String, Vec<String>>,
+) -> HashMap<String, Vec<String>> {
+    let mut json: HashMap<String, Vec<String>> = json;
+
+    for file in files {
+        let ext: String = get_file_extension((&file).to_string());
+
+        if json.contains_key(ext.as_str()) {
+            json.entry(ext).or_insert_with(Vec::new).push(file);
+        }
+    }
+
+    json
 }
 
 /*
